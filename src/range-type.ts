@@ -4,7 +4,7 @@ import { Session } from './session';
 
 async function getType(
     session: Session,
-    sel: vscode.Selection,
+    sel: vscode.Range,
     doc: vscode.TextDocument):
     Promise<null | [vscode.Range, string]> {
 
@@ -14,16 +14,19 @@ async function getType(
 
     await session.loading;
 
+    if (sel.start.isEqual(sel.end)) {
+        sel = doc.getWordRangeAtPosition(sel.start);
+    }
     const typeAtCmd = `:type-at ${doc.uri.fsPath} ${sel.start.line + 1} ${sel.start.character + 1} ${sel.end.line + 1} ${sel.end.character + 1}`;
-    const typeAtResult = await session.ghci.sendCommand(typeAtCmd);
+    const typeAtResult = (await session.ghci.sendCommand(typeAtCmd)).filter(s => s.trim().length > 0);
     if(typeAtResult.length == 0) {
         return null;
     }
-    if (typeAtResult[0].startsWith("<no location info>")) {
+    if (typeAtResult[0].indexOf("<no location info>") != -1) {
         return null;
     }
-    const typeName = typeAtResult.map(s => s.trim().replace(":: ", "")).join(" ");
-    return [sel, typeName];
+    const type = typeAtResult.map(s => s.trim().replace(":: ", "")).join(" ");
+    return [sel, type];
 }
 
 export function registerRangeType(ext: ExtensionState) {
