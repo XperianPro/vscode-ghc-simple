@@ -17,6 +17,19 @@ async function getType(
     if (sel.start.isEqual(sel.end)) {
         sel = doc.getWordRangeAtPosition(sel.start);
     }
+    const extensedSelectedText = doc.getText(new vscode.Range(
+        new vscode.Position(sel.start.line, sel.start.character - 1),
+        new vscode.Position(sel.end.line, sel.end.character + 1)
+    ));
+    if (extensedSelectedText.startsWith(".")) {
+        const newStart = doc.getWordRangeAtPosition(new vscode.Position(sel.start.line, sel.start.character - 2)).start;
+        sel = new vscode.Range(newStart, sel.end);
+    }
+    if (extensedSelectedText.endsWith(".")) {
+        const newEnd = doc.getWordRangeAtPosition(new vscode.Position(sel.end.line, sel.end.character + 2)).end;
+        sel = new vscode.Range(sel.start, newEnd);
+    }
+
     const typeAtCmd = `:type-at ${doc.uri.fsPath} ${sel.start.line + 1} ${sel.start.character + 1} ${sel.end.line + 1} ${sel.end.character + 1}`;
     const typeAtResult = (await session.ghci.sendCommand(typeAtCmd)).filter(s => s.trim().length > 0);
     if(typeAtResult.length == 0) {
