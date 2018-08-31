@@ -29,7 +29,7 @@ export class HaskellDefinition implements vscode.DefinitionProvider {
         if (res.length == 1) {
             const locR = /^(.+):\((\d+),(\d+)\)-\((\d+),(\d+)\)$/;
             const loc = res[0];
-            const ma = loc.match(locR);
+            const ma = loc.match(locR); 
             if (ma) {
                 const [_all, file, startLine, startCol, endLine, endCol] = ma
                 return new vscode.Location(
