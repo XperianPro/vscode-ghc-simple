@@ -19,9 +19,13 @@ export class HaskellCompletion implements vscode.CompletionItemProvider {
         const line = document.getText(new vscode.Range(firstInLine, position));
         if (line.trim() === '') return null;
 
+        const config = vscode.workspace.getConfiguration('ghcSimple')
+        
+        const replLines = config.replLines;
+
         await session.loading;
         const complStrs = await session.ghci.sendCommand(
-            `:complete repl 10 ${JSON.stringify(line)}`,
+            `:complete repl ${replLines} ${JSON.stringify(line)}`,
             token);
 
         const firstLine = /^\d+ \d+ (".*")$/.exec(complStrs[0]);
