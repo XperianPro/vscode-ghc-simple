@@ -4,17 +4,9 @@ import { Session } from './session';
 
 async function getType(
     session: Session,
-    sel: vscode.Selection | vscode.Position | vscode.Range,
+    sel: vscode.Range,
     doc: vscode.TextDocument):
     Promise<null | [vscode.Range, string]> {
-
-    const selRangeOrPos: vscode.Range | vscode.Position = (() => {
-        if (sel instanceof vscode.Selection) {
-            return new vscode.Range(sel.start, sel.end);
-        } else {
-            return sel;
-        }
-    })();
 
     if (session.loading === null) {
         session.reload();
@@ -22,65 +14,32 @@ async function getType(
 
     await session.loading;
 
-    const typesB: string[] =
-        session.typeCache !== null
-        ? session.typeCache
-        : await session.ghci.sendCommand(':all-types');
-
-    session.typeCache = typesB;
-
-    const strTypes = typesB.filter((x) => x.startsWith(doc.uri.fsPath));
-
-    const allTypes = strTypes.map((x) =>
-        /^:\((\d+),(\d+)\)-\((\d+),(\d+)\): (.*)$/.exec(x.substr(doc.uri.fsPath.length)));
-
-    let curBestRange: null | vscode.Range = null, curType: null | string = null;
-
-    for (const [_whatever, startLine, startCol, endLine, endCol, type] of allTypes) {
-        const curRange = new vscode.Range(+startLine - 1, +startCol - 1, +endLine - 1, +endCol - 1);
-        if (curRange.contains(selRangeOrPos)) {
-            if (curBestRange === null || curBestRange.contains(curRange)) {
-                curBestRange = curRange;
-                curType = type;
-            }
-        }
+    if (sel.start.isEqual(sel.end)) {
+        sel = doc.getWordRangeAtPosition(sel.start);
+    }
+    const extensedSelectedText = doc.getText(new vscode.Range(
+        new vscode.Position(sel.start.line, sel.start.character - 1),
+        new vscode.Position(sel.end.line, sel.end.character + 1)
+    ));
+    if (extensedSelectedText.startsWith(".")) {
+        const newStart = doc.getWordRangeAtPosition(new vscode.Position(sel.start.line, sel.start.character - 2)).start;
+        sel = new vscode.Range(newStart, sel.end);
+    }
+    if (extensedSelectedText.endsWith(".")) {
+        const newEnd = doc.getWordRangeAtPosition(new vscode.Position(sel.end.line, sel.end.character + 2)).end;
+        sel = new vscode.Range(sel.start, newEnd);
     }
 
-    if (curType === null) {
+    const typeAtCmd = `:type-at ${doc.uri.fsPath} ${sel.start.line + 1} ${sel.start.character + 1} ${sel.end.line + 1} ${sel.end.character + 1}`;
+    const typeAtResult = (await session.ghci.sendCommand(typeAtCmd)).filter(s => s.trim().length > 0);
+    if(typeAtResult.length == 0) {
         return null;
-    } else {
-        // :all-types gives types with implicit forall type variables,
-        // but :kind! doesn't like them, so we try to patch this fact
-
-        const re = /[A-Za-z0-9_']*/g
-        const typeVariables = curType.match(re).filter((u) =>
-            u.length && u !== 'forall' && /[a-z]/.test(u[0]));
-        const forallPart = `forall ${[...new Set(typeVariables)].join(' ')}.`
-        const fullType = `${forallPart} ${curType}`;
-        
-        const res = await session.ghci.sendCommand([
-            ':seti -XExplicitForAll -XKindSignatures',
-            `:kind! ((${fullType}) :: *)`]);
-
-        const resolved: null | string = (() => {
-            // GHCi may output warning messages before the response
-            while (res.length && res[0] !== `((${fullType}) :: *) :: *`) res.shift();
-
-            if (res.length && res[1].startsWith('= ')) {
-                res.shift();
-                res[0] = res[0].slice(1); // Skip '=' on second line
-                return res.join(' ').replace(/\s{2,}/g, ' ').trim();
-            } else {
-                return null;
-            }
-        })();
-
-        if (resolved) {
-            return [curBestRange, resolved];
-        } else {
-            return [curBestRange, curType.replace(/([A-Z][A-Za-z0-9_']*\.)+([A-Za-z0-9_']+)/g, '$2')];
-        }
     }
+    if (typeAtResult[0].indexOf("<no location info>") != -1) {
+        return null;
+    }
+    const type = typeAtResult.map(s => s.trim().replace(":: ", "")).join(" ");
+    return [sel, type];
 }
 
 export function registerRangeType(ext: ExtensionState) {
